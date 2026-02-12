@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Osilatör ve NE555 Hesaplama</title>
+<style>
+  body { font-family: Arial; padding:20px; background:#f0f0f0; text-align:center; }
+  h1 { color:#333; }
+  input, select, button { padding:5px; margin:5px; font-size:16px; }
+  table { margin:20px auto; border-collapse: collapse; }
+  table, th, td { border:1px solid #333; padding:8px; }
+  canvas { border:1px solid #333; margin-top:20px; background:#000; }
+  .page { display:none; }
+</style>
+</head>
+<body>
+
+<h1>Osilatör ve NE555 Hesaplama</h1>
+
+<!-- Sayfa Seçimi -->
+<button onclick="showPage('page1')">Osilatör Hesaplama</button>
+<button onclick="showPage('page2')">NE555 Ters Hesap</button>
+
+<!-- SAYFA 1: Osilatör Hesaplama -->
+<div id="page1" class="page">
+<h2>Osilatör Hesaplama ve Simülasyon</h2>
+
+<label>Dalga Türü:</label>
+<select id="waveType">
+  <option value="sine">Sinüs</option>
+  <option value="square">Kare</option>
+  <option value="triangle">Üçgen</option>
+  <option value="saw">Testere</option>
+</select>
+<br>
+
+<label>Osilatör Tipi:</label>
+<select id="oscType">
+  <option value="rc">RC</option>
+  <option value="555">555 Astable</option>
+  <option value="lc">LC</option>
+</select>
+<br>
+
+<h3>Değerler (opsiyonel)</h3>
+<label>R:</label><input type="text" id="R" placeholder="1kΩ"><br>
+<label>C:</label><input type="text" id="C" placeholder="1μF"><br>
+<label>L:</label><input type="text" id="L" placeholder="1mH"><br>
+<label>T (saniye):</label><input type="text" id="T" placeholder="1"><br>
+<label>R2 (555 için):</label><input type="text" id="R2" placeholder="1kΩ"><br>
+<button onclick="calculate()">Hesapla</button>
+
+<h3>Sonuçlar</h3>
+<table>
+  <tr><th>Özellik</th><th>Değer</th></tr>
+  <tr><td>Frekans (Hz)</td><td id="fres"></td></tr>
+  <tr><td>Periyot (s)</td><td id="Tres"></td></tr>
+  <tr><td>Duty Cycle (%)</td><td id="Dres"></td></tr>
+</table>
+
+<canvas id="oscilloscope" width="600" height="200"></canvas>
+</div>
+
+<!-- SAYFA 2: NE555 Ters Hesap -->
+<div id="page2" class="page">
+<h2>NE555 için Frekans Ters Hesap</h2>
+
+<label>Hedef Frekans (Hz):</label>
+<input type="text" id="freq" placeholder="1000"><br>
+<label>Opsiyonel: R1 sabit</label>
+<input type="text" id="R1" placeholder="1kΩ"><br>
+<label>Opsiyonel: C sabit</label>
+<input type="text" id="C2" placeholder="1μF"><br>
+
+<button onclick="calculate555()">Hesapla</button>
+
+<h3>Önerilen Değerler</h3>
+<table>
+<tr><th>R1</th><th>R2</th><th>C</th><th>Frekans (Hz)</th></tr>
+<tr id="res1"><td colspan="4">Sonuç burada görünecek</td></tr>
+</table>
+</div>
+
+<script>
+// Sayfa geçiş fonksiyonu
+function showPage(id){
+  document.querySelectorAll('.page').forEach(p=>p.style.display='none');
+  document.getElementById(id).style.display='block';
+}
+
+// Başlangıçta sayfa1 göster
+showPage('page1');
+
+// Birimi destekleyen parse fonksiyonu
+function parseValue(str){
+  if(!str) return 0;
+  str = str.trim().toLowerCase();
+  let num = parseFloat(str);
+  if(str.includes('k')) num *= 1e3;
+  if(str.includes('m') && str.includes('h')) num *= 0.001; // mH
+  if(str.includes('μ') || str.includes('u')) num *= 1e-6;
+  if(str.includes('n')) num *= 1e-9;
+  if(str.includes('p')) num *= 1e-12;
+  return num;
+}
+
+// Sayısal değeri uygun birimle stringe çevir
+function formatValue(val, type) {
+  if(type === 'R'){ // Ohm
+    if(val >= 1e6) return (val/1e6).toFixed(2) + 'MΩ';
+    if(val >= 1e3) return (val/1e3).toFixed(2) + 'kΩ';
+    return val.toFixed(0) + 'Ω';
+  } else if(type === 'C'){ // Farad
+    if(val >= 1) return val.toFixed(6) + 'F';
+    if(val >= 1e-3) return (val*1e3).toFixed(3) + 'mF';
+    if(val >= 1e-6) return (val*1e6).toFixed(3) + 'μF';
+    if(val >= 1e-9) return (val*1e9).toFixed(3) + 'nF';
+    if(val >= 1e-12) return (val*1e12).toFixed(3) + 'pF';
+  }
+  return val;
+}
+
+// SAYFA 1 Hesaplama
+function calculate() {
+  let R = parseValue(document.getElementById("R").value) || 1000;
+  let C = parseValue(document.getElementById("C").value) || 0.001;
+  let L = parseValue(document.getElementById("L").value) || 0.001;
+  let T = parseValue(document.getElementById("T").value) || 1;
+  let R2 = parseValue(document.getElementById("R2").value) || 1000;
+  let oscType = document.getElementById("oscType").value;
+
+  let f = 0;
+  let duty = "-";
+
+  if(oscType=="rc"){
+    f = 1/(1.2*R*C);
+  } else if(oscType=="555"){
+    f = 1.44/((R + 2*R2)*C);
+    duty = ((R+R2)/(R+2*R2)*100).toFixed(1);
+  } else if(oscType=="lc"){
+    f = 1/(2*Math.PI*Math.sqrt(L*C));
+  }
+
+  let period = 1/f;
+
+  document.getElementById("fres").innerText = f.toFixed(2);
+  document.getElementById("Tres").innerText = period.toFixed(6);
+  document.getElementById("Dres").innerText = duty;
+
+  drawWave(f);
+}
+
+function drawWave(freq){
+  let canvas = document.getElementById("oscilloscope");
+  let ctx = canvas.getContext("2d");
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+
+  let waveType = document.getElementById("waveType").value;
+  let width = canvas.width;
+  let height = canvas.height;
+  let samples = 600;
+  let amp = height/2 - 10;
+
+  ctx.beginPath();
+  ctx.strokeStyle="lime";
+  
+  for(let i=0;i<samples;i++){
+    let x = i;
+    let t = i/samples * 2*Math.PI*freq;
+    let y = 0;
+    if(waveType=="sine"){
+      y = Math.sin(t)*amp;
+    } else if(waveType=="square"){
+      y = (Math.sin(t)>=0?1:-1)*amp;
+    } else if(waveType=="triangle"){
+      y = (2/Math.PI)*Math.asin(Math.sin(t))*amp;
+    } else if(waveType=="saw"){
+      y = (2*(t/(2*Math.PI) - Math.floor(t/(2*Math.PI)+0.5)))*amp;
+    }
+    ctx.lineTo(x, height/2 - y);
+  }
+  ctx.stroke();
+}
+
+// SAYFA 2 Hesaplama (NE555 Ters Hesap)
+function calculate555(){
+  let f = parseValue(document.getElementById("freq").value);
+  let R1 = parseValue(document.getElementById("R1").value);
+  let C = parseValue(document.getElementById("C2").value);
+
+  let results = [];
+
+  if(!R1 && !C){
+    let sampleC = [1e-6,1e-5,1e-4];
+    let sampleR1 = [1e3,1e4,1e5];
+    for(let i=0;i<sampleC.length;i++){
+      for(let j=0;j<sampleR1.length;j++){
+        let R2 = (1.44/(f*sampleC[i]) - sampleR1[j])/2;
+        if(R2>0) results.push([sampleR1[j],R2,sampleC[i],(1.44/((sampleR1[j]+2*R2)*sampleC[i])).toFixed(2)]);
+      }
+    }
+  } else if(R1 && !C){
+    let R2 = R1;
+    let Ccalc = 1.44/((R1+2*R2)*f);
+    results.push([R1,R2,Ccalc,(1.44/((R1+2*R2)*Ccalc)).toFixed(2)]);
+  } else if(!R1 && C){
+    let R2 = 1000;
+    let R1calc = 1.44/(f*C) - 2*R2;
+    if(R1calc>0) results.push([R1calc,R2,C,(1.44/((R1calc+2*R2)*C)).toFixed(2)]);
+  }
+
+  let tableRow = "";
+  results.forEach(r=>{
+    tableRow += `<tr>
+      <td>${formatValue(r[0],'R')}</td>
+      <td>${formatValue(r[1],'R')}</td>
+      <td>${formatValue(r[2],'C')}</td>
+      <td>${r[3]}</td>
+    </tr>`;
+  });
+  if(tableRow=="") tableRow = `<tr><td colspan="4">Geçerli değer bulunamadı</td></tr>`;
+  document.getElementById("res1").innerHTML = tableRow;
+}
+</script>
+
+</body>
+  </html>
